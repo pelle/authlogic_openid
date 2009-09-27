@@ -35,6 +35,15 @@ module AuthlogicOpenid
         rw_config(:openid_optional_fields, value, [])
       end
       alias_method :openid_optional_fields=, :openid_optional_fields
+      
+      # Options for openid plugin
+      #
+      # * <tt>Default:</tt> []
+      # * <tt>Accepts:</tt> Configuration hash
+      def openid_options(value = nil)
+        rw_config(:openid_options, value, {})
+      end
+      alias_method :openid_options=, :openid_options
     end
     
     module Methods
@@ -89,7 +98,7 @@ module AuthlogicOpenid
             session_class.controller.session[:openid_attributes] = nil
           end
           
-          options = {}
+          options = self.class.openid_options || {}
           options[:required] = self.class.openid_required_fields
           options[:optional] = self.class.openid_optional_fields
           options[:return_to] = session_class.controller.url_for(:for_model => "1",:controller=>"users",:action=>"create")
