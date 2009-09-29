@@ -44,6 +44,18 @@ module AuthlogicOpenid
         rw_config(:openid_options, value, {})
       end
       alias_method :openid_options=, :openid_options
+      
+      # Enable OpenID OAuth extension
+      # See http://step2.googlecode.com/svn/spec/openid_oauth_extension/latest/openid_oauth_extension.html
+      #
+      # * <tt>Default:</tt> false
+      # * <tt>Accepts:</tt> true/false
+      def openid_oauth(value = nil)
+        rw_config(:openid_oauth, value, false)
+      end
+      alias_method :openid_oauth=, :openid_oauth
+      alias_method :openid_oauth?, :openid_oauth
+
     end
     
     module Methods
@@ -57,6 +69,11 @@ module AuthlogicOpenid
           validates_length_of_password_field_options validates_length_of_password_field_options.merge(:if => :validate_password_with_openid?)
           validates_confirmation_of_password_field_options validates_confirmation_of_password_field_options.merge(:if => :validate_password_with_openid?)
           validates_length_of_password_confirmation_field_options validates_length_of_password_confirmation_field_options.merge(:if => :validate_password_with_openid?)
+          
+          if openid_oauth?
+            attr_accessor :request_token
+            after_create :exchange_oauth_tokens
+          end
         end
       end
       
@@ -102,13 +119,19 @@ module AuthlogicOpenid
           options[:required] = self.class.openid_required_fields
           options[:optional] = self.class.openid_optional_fields
           options[:return_to] = session_class.controller.url_for(:for_model => "1",:controller=>"users",:action=>"create")
-          
+          if self.class.openid_oauth? && openid_oauth_consumer
+            options[:oauth] = openid_oauth_consumer
+          end
           session_class.controller.send(:authenticate_with_open_id, openid_identifier, options) do |result, openid_identifier, registration|
             if result.unsuccessful?
               @openid_error = result.message
             else
               self.openid_identifier = openid_identifier
               map_openid_registration(registration)
+              if self.class.openid_oauth? && registration[:request_token]
+                @request_token=registration[:request_token]
+                @oauth_scope=registration[:oauth_scope]
+              end
             end
             
             return true
@@ -129,6 +152,41 @@ module AuthlogicOpenid
               send setter,registration[field]
             end
           end
+        end
+        
+        # Optionally add oauth consumer details to the openid request following the OpenID OAuth extension
+        # 
+        # http://step2.googlecode.com/svn/spec/openid_oauth_extension/latest/openid_oauth_extension.html
+        #
+        # You need to already be registered as an OAuth consumer at the various providers. Use this method to
+        # match consumer details for various providers.
+        #
+        # return nil if your users openid doesn't support the OpenID OAuth extension or if you haven't
+        # registered as a consumer with the particular openid provider.
+        #
+        #   def openid_oauth_consumer
+        #     if openid_identifier=="https://www.google.com/accounts/o8/id"
+        #       return {:consumer=>'mydomain.com',:scope=>'http://www.google.com/m8/feeds/'}
+        #     elsif openid_identifier=~/yahoo.com/
+        #       return {:consumer=>"YOUR YAHOO CONSUMER"}
+        #     end
+        #   end
+        def openid_oauth_consumer          
+        end
+        
+        # If a request token is returned from openid provider we call this method to exchange the oauth_token and store it
+        # 
+        # By default this doesn't do anything. You need to override it and do something similar to this assuming you have the
+        # oauth-plugin installed (http://github.com/pelle/oauth-plugin)
+        #
+        #   def exchange_oauth_tokens
+        #     return unless @request_token
+        #     if openid_identifier=="https://www.google.com/accounts/o8/id"
+        #       GoogleToken.create_from_request_token(self,@request_token,'','')
+        #     end
+        #   end
+        # 
+        def exchange_oauth_tokens
         end
         
         # This method works in conjunction with map_saved_attributes.
