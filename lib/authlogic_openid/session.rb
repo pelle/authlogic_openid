@@ -66,11 +66,20 @@ module AuthlogicOpenid
         @openid_error = e.message
       end
       
-      # Cleaers out the block if we are authenticating with OpenID, so that we can redirect without a DoubleRender
+      # Clears out the block if we are authenticating with OpenID, so that we can redirect without a DoubleRender
       # error.
       def save(&block)
-        block = nil if !openid_identifier.blank?
-        super(&block)
+        begin
+          block = nil if !openid_identifier.blank?
+          super(&block)
+        rescue AuthlogicOpenid::Session::OpenIDNotFoundException
+          controller.send( :open_id_consumer).send( :cleanup_session)
+          controller.params[:open_id_complete]=nil #we need to start a fresh for autocomplete
+          self.attempted_record = klass.new :openid_identifier=>openid_identifier
+          attempted_record.save do |result|
+            # I think we need a block here even though it wont be called
+          end
+        end
       end
       
       private
@@ -81,10 +90,6 @@ module AuthlogicOpenid
         def find_by_openid_identifier_method
           self.class.find_by_openid_identifier_method
         end
-
-        def find_by_openid_identifier_method
-          self.class.find_by_openid_identifier_method
-        end
         
         def auto_register?
           self.class.auto_register_value
@@ -92,21 +97,18 @@ module AuthlogicOpenid
         
         def validate_by_openid
           self.remember_me = controller.params[:remember_me] == "true" if controller.params.key?(:remember_me)
-          self.attempted_record = klass.send(find_by_openid_identifier_method, openid_identifier)
-          if !attempted_record
-            if auto_register?
-              self.attempted_record = klass.new :openid_identifier=>openid_identifier
-              attempted_record.save do |result|
-                if result
-                  true
-                else
-                  false
-                end
+          if openid_complete?
+            self.openid_identifier ||= controller.params["openid.identity"]
+            self.attempted_record = klass.send(find_by_openid_identifier_method, openid_identifier)
+            if !attempted_record
+              if auto_register?
+                raise OpenIDNotFoundException
+              else
+                errors.add(:openid_identifier, "did not match any users in our database, have you set up your account to use OpenID?")
               end
-            else
-              errors.add(:openid_identifier, "did not match any users in our database, have you set up your account to use OpenID?")
+              return false
             end
-            return
+            
           end
           controller.send(:authenticate_with_open_id, openid_identifier, :return_to => controller.url_for(:for_session => "1", :remember_me => remember_me?)) do |result, openid_identifier|
             if result.unsuccessful?
@@ -117,9 +119,16 @@ module AuthlogicOpenid
           end
         end
         
+        def openid_complete?
+          controller.params[:open_id_complete]
+        end
+        
         def validate_openid_error
           errors.add(:openid_identifier, @openid_error) if @openid_error
         end
+    end
+    
+    class OpenIDNotFoundException < Exception 
     end
   end
 end
