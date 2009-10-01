@@ -165,7 +165,7 @@ module AuthlogicOpenid
         # registered as a consumer with the particular openid provider.
         #
         #   def openid_oauth_consumer
-        #     if openid_identifier=="https://www.google.com/accounts/o8/id"
+        #     if openid_identifier=~/^https?:\/\/www\.google\./
         #       return {:consumer=>'mydomain.com',:scope=>'http://www.google.com/m8/feeds/'}
         #     elsif openid_identifier=~/yahoo.com/
         #       return {:consumer=>"YOUR YAHOO CONSUMER"}
@@ -181,7 +181,7 @@ module AuthlogicOpenid
         #
         #   def exchange_oauth_tokens
         #     return unless @request_token
-        #     if openid_identifier=="https://www.google.com/accounts/o8/id"
+        #     if openid_identifier=~/^https?:\/\/www\.google\./
         #       GoogleToken.create_from_request_token(self,@request_token,'','')
         #     end
         #   end
