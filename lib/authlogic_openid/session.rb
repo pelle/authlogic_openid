@@ -70,10 +70,21 @@ module AuthlogicOpenid
       # error.
       def save(&block)
         begin
-          block = nil if !openid_identifier.blank?
-          super(&block)
+          if beginning_authenticating_with_openid?
+            block = nil
+            super &block
+          else
+            super do |result|
+              if block
+                # don't call the block if we have already rendered or redirected elsewhere
+                block.call(result) unless controller.send(:performed?)
+              end
+            end
+          end
         rescue AuthlogicOpenid::Session::OpenIDNotFoundException
+          # The openid library sets a bunch of sessions fields we need to clear up
           controller.send( :open_id_consumer).send( :cleanup_session)
+          # The user object won't start the discovery correctly if open_id_complete is set
           controller.params[:open_id_complete]=nil #we need to start a fresh for autocomplete
           self.attempted_record = klass.new :openid_identifier=>openid_identifier
           attempted_record.save do |result|
@@ -87,6 +98,11 @@ module AuthlogicOpenid
           attempted_record.nil? && errors.empty? && (!openid_identifier.blank? || (controller.params[:open_id_complete] && controller.params[:for_session]))
         end
         
+        # We are starting the openid process
+        def beginning_authenticating_with_openid?
+          attempted_record.nil? && errors.empty? && (!openid_identifier.blank? )
+        end
+        
         def find_by_openid_identifier_method
           self.class.find_by_openid_identifier_method
         end
@@ -98,10 +114,11 @@ module AuthlogicOpenid
         def validate_by_openid
           self.remember_me = controller.params[:remember_me] == "true" if controller.params.key?(:remember_me)
           if openid_complete?
-            self.openid_identifier ||= controller.params["openid.identity"]
+            self.openid_identifier ||= controller.params["openid.claimed_id"]||controller.params["openid.identity"]
             self.attempted_record = klass.send(find_by_openid_identifier_method, openid_identifier)
             if !attempted_record
               if auto_register?
+                # We raise an exception here so we don't have to deal with all the other issues here
                 raise OpenIDNotFoundException
               else
                 errors.add(:openid_identifier, "did not match any users in our database, have you set up your account to use OpenID?")
